@@ -1,298 +1,422 @@
-from aiogram import Router, F
-import asyncio
+from aiogram import Router
 
 from aiogram.types import (
     CallbackQuery,
-    Message,
-    LabeledPrice,
-    PreCheckoutQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
 
-from database.db import change_balance
+import asyncio
+
+
+from database.games import get_game
+
+from database.db import (
+    get_balance,
+    update_balance,
+    get_user_discount,
+    get_free_account,
+    take_account
+)
+
+from database.rentals import (
+    add_rental,
+    has_rental
+)
 
 
 router = Router()
 
 
+
 # =========================
-# Кнопки выбора суммы
+# Кнопки подтверждения
 # =========================
 
-def payment_keyboard():
+def confirm_keyboard(waiting=True):
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    if waiting:
 
-            [
-                InlineKeyboardButton(
-                    text="⭐ 100",
-                    callback_data="pay_100"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text="⭐ 500",
-                    callback_data="pay_500"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text="⭐ 1000",
-                    callback_data="pay_1000"
-                )
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⏳ Подождите 5 секунд",
+                        callback_data="wait_buy"
+                    )
+                ]
             ]
+        )
 
-        ]
-    )
-
-
-
-# =========================
-# Кнопка ожидания
-# =========================
-
-def wait_keyboard():
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-
-            [
-                InlineKeyboardButton(
-                    text="⏳ Подождите 10 секунд...",
-                    callback_data="wait"
-                )
-            ]
-
-        ]
-    )
-
-
-
-# =========================
-# Кнопка подтверждения
-# =========================
-
-def confirm_keyboard():
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-
             [
                 InlineKeyboardButton(
                     text="✅ Подтверждаю",
-                    callback_data="confirm_balance"
+                    callback_data="confirm_buy"
                 )
             ]
-
         ]
     )
 
 
 
 # =========================
-# Защита перед пополнением
+# Покупка игры
 # =========================
 
-
 @router.callback_query(
-    lambda call: call.data == "add_balance"
+    lambda call: call.data.startswith("buy_")
 )
-async def add_balance_warning(
-    call: CallbackQuery
-):
+async def buy_game(call: CallbackQuery):
+
+
+    data = call.data.split("_")
+
+
+    game_id = int(data[1])
+
+    days = int(data[2])
+
+
+    game = get_game(game_id)
+
+
+    if not game:
+
+        await call.answer(
+            "❌ Игра не найдена",
+            show_alert=True
+        )
+
+        return
+
+
+
+    telegram_id = call.from_user.id
+
+
+
+    if has_rental(
+        telegram_id,
+        game_id
+    ):
+
+        await call.answer(
+            "⚠️ Эта игра уже арендована",
+            show_alert=True
+        )
+
+        return
+
+
+
+    # =========================
+    # Цена
+    # =========================
+
+    if days == 1:
+
+        price = game[2]
+
+
+    elif days == 3:
+
+        price = game[3]
+
+
+    elif days == 7:
+
+        price = game[4]
+
+
+    else:
+
+        await call.answer(
+            "❌ Ошибка срока",
+            show_alert=True
+        )
+
+        return
+
+
+
+    # =========================
+    # Скидка
+    # =========================
+
+    discount = get_user_discount(
+        telegram_id
+    )
+
+
+    if discount > 0:
+
+        price = round(
+            price - (price * discount / 100),
+            2
+        )
+
+
 
     await call.message.edit_text(
 
-        "⚠️ Внимание!\n\n"
+        "⚠️ Вы уверены?\n\n"
 
-        "Перед пополнением баланса будьте внимательны, "
-        "что вы указали верную сумму и вы точно уверены, "
-        "что хотите пополнить ваш баланс в боте.\n\n"
+        f"🎮 Игра: {game[1]}\n"
 
-        "Это диалоговое окно сделано специально, "
-        "чтобы обезопасить вас и ваши деньги "
-        "от незапланированных трат.\n\n"
+        f"📅 Срок: {days} дней\n"
 
-        "Если вы всё прочитали и подтверждаете "
-        "пополнение баланса — нажмите кнопку ниже.\n\n"
+        f"💰 Стоимость: {price}₽\n\n"
 
-        "⏳ Кнопка подтверждения появится через 10 секунд.",
+        "Нажмите кнопку подтверждения.",
 
-        reply_markup=wait_keyboard()
+        reply_markup=confirm_keyboard(True)
 
     )
+
+
+
+    if not hasattr(call.bot, "pending_buy"):
+
+        call.bot.pending_buy = {}
+
+
+
+    call.bot.pending_buy[telegram_id] = {
+
+
+        "game_id": game_id,
+
+        "days": days,
+
+        "price": price,
+
+        "game_name": game[1]
+
+    }
+
 
 
     await call.answer()
 
 
-    await asyncio.sleep(10)
+
+    await asyncio.sleep(5)
+
 
 
     await call.message.edit_reply_markup(
 
-        reply_markup=confirm_keyboard()
+        reply_markup=confirm_keyboard(False)
 
     )
 
 
 
-# =========================
-# Нажатие во время ожидания
-# =========================
 
+# =========================
+# Ожидание
+# =========================
 
 @router.callback_query(
-    lambda call: call.data == "wait"
+    lambda call: call.data == "wait_buy"
 )
-async def wait_button(
-    call: CallbackQuery
-):
+async def wait_buy(call: CallbackQuery):
+
 
     await call.answer(
-
-        "⏳ Подождите, кнопка появится автоматически",
-
+        "⏳ Подождите завершения защиты",
         show_alert=True
+    )
+
+
+
+
+# =========================
+# Подтверждение покупки
+# =========================
+
+@router.callback_query(
+    lambda call: call.data == "confirm_buy"
+)
+async def confirm_buy(call: CallbackQuery):
+
+
+    telegram_id = call.from_user.id
+
+
+
+    if not hasattr(call.bot, "pending_buy"):
+
+        await call.answer(
+            "❌ Покупка устарела",
+            show_alert=True
+        )
+
+        return
+
+
+
+    if telegram_id not in call.bot.pending_buy:
+
+
+        await call.answer(
+            "❌ Покупка устарела",
+            show_alert=True
+        )
+
+        return
+
+
+
+    data = call.bot.pending_buy[telegram_id]
+
+
+    price = data["price"]
+
+
+
+    # =========================
+    # Проверка свободного аккаунта
+    # =========================
+
+    account = get_free_account(
+        data["game_id"]
+    )
+
+
+    if not account:
+
+
+        await call.answer(
+            "❌ Сейчас нет свободных аккаунтов для этой игры.\n\n"
+            "Попробуйте позже.",
+            show_alert=True
+        )
+
+
+        del call.bot.pending_buy[telegram_id]
+
+
+        return
+
+
+
+    # =========================
+    # Проверка баланса
+    # =========================
+
+    balance = get_balance(
+        telegram_id
+    )
+
+
+
+    if balance < price:
+
+
+        await call.answer(
+            "❌ Недостаточно средств",
+            show_alert=True
+        )
+
+        return
+
+
+
+    # =========================
+    # Списание денег
+    # =========================
+
+    new_balance = round(
+        balance - price,
+        2
+    )
+
+
+    update_balance(
+        telegram_id,
+        new_balance
+    )
+
+
+
+    # =========================
+    # Выдача аккаунта
+    # =========================
+
+    account_id = account[0]
+
+    login = account[1]
+
+    password = account[2]
+
+
+
+    take_account(
+        account_id
+    )
+
+
+
+    account_text = (
+
+        "\n\n🔐 Данные аккаунта:\n\n"
+
+        f"👤 Логин: {login}\n"
+
+        f"🔑 Пароль: {password}\n"
 
     )
 
 
 
-# =========================
-# Подтверждение пополнения
-# =========================
+    # =========================
+    # Создание аренды
+    # =========================
+
+    add_rental(
+
+        telegram_id,
+
+        data["game_id"],
+
+        data["days"],
+
+        price,
+
+        account_id
+
+    )
 
 
-@router.callback_query(
-    lambda call: call.data == "confirm_balance"
-)
-async def confirm_balance(
-    call: CallbackQuery
-):
 
-    await call.message.answer(
+    # =========================
+    # Удаляем ожидание покупки
+    # =========================
 
-        "💳 Выберите сумму пополнения:",
+    del call.bot.pending_buy[telegram_id]
 
-        reply_markup=payment_keyboard()
+
+
+    await call.message.edit_text(
+
+
+        "✅ Аренда успешно оформлена!\n\n"
+
+        f"🎮 Игра: {data['game_name']}\n"
+
+        f"📅 Срок: {data['days']} дней\n"
+
+        f"💰 Оплачено: {price}₽\n"
+
+        f"💳 Остаток: {new_balance}₽"
+
+        f"{account_text}"
 
     )
 
 
     await call.answer()
-
-
-
-# =========================
-# Создание оплаты
-# =========================
-
-
-@router.callback_query(
-    lambda call: call.data.startswith("pay_")
-)
-async def create_payment(
-    call: CallbackQuery
-):
-
-    amount = int(
-        call.data.replace(
-            "pay_",
-            ""
-        )
-    )
-
-
-    await call.message.answer_invoice(
-
-        title="Пополнение баланса Prime Play",
-
-        description=f"Пополнение баланса на {amount}₽",
-
-        payload=f"balance_{amount}",
-
-        currency="XTR",
-
-        prices=[
-
-            LabeledPrice(
-                label=f"{amount}₽",
-                amount=amount
-            )
-
-        ]
-
-    )
-
-
-    await call.answer()
-
-
-
-# =========================
-# Проверка оплаты
-# =========================
-
-
-@router.pre_checkout_query()
-async def pre_checkout(
-    query: PreCheckoutQuery
-):
-
-    await query.answer(
-        ok=True
-    )
-
-
-
-# =========================
-# Успешная оплата
-# =========================
-
-
-@router.message(
-    F.successful_payment
-)
-async def successful_payment(
-    message: Message
-):
-
-    payment = message.successful_payment
-
-
-    if payment.invoice_payload.startswith(
-        "balance_"
-    ):
-
-
-        amount = int(
-            payment.invoice_payload.replace(
-                "balance_",
-                ""
-            )
-        )
-
-
-        change_balance(
-
-            message.from_user.id,
-
-            amount
-
-        )
-
-
-        await message.answer(
-
-            "✅ Оплата прошла успешно!\n\n"
-
-            f"💳 Вам начислено: +{amount}₽\n\n"
-
-            "Спасибо за пополнение Prime Play 🎮"
-
-        )

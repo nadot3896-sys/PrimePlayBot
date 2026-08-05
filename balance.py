@@ -1,18 +1,20 @@
 from aiogram import Router
-from aiogram.types import (
-    CallbackQuery,
-    Message
-)
+from aiogram.types import Message
 
-from database.db import (
-    get_all_accounts,
-    add_account,
-    delete_account,
-    set_account_status
-)
+from database.db import get_balance
+from keyboards.payment import payment_menu
 
 
 router = Router()
 
 
-ADMIN_ID = 7576530147
+@router.message(lambda message: message.text == "💳 Баланс")
+async def balance_handler(message: Message):
+
+    balance = get_balance(message.from_user.id)
+
+    await message.answer(
+    f"💳 Ваш баланс: {balance}₽\n\n"
+    "Чтобы пополнить баланс, нажмите кнопку ниже 👇",
+    reply_markup=payment_menu
+)

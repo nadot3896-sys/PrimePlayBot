@@ -1,230 +1,68 @@
-from database.db import connect
+from aiogram import Router
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from database.db import create_ticket
+from config import ADMIN_ID
+from aiogram.filters import StateFilter
+
+
+router = Router()
+
+
+class Support(StatesGroup):
+
+    message = State()
 
 
 
-
-
-# =========================
-# Добавить игру
-# =========================
-
-
-def add_game(
-        name,
-        price_1_day,
-        price_3_days,
-        price_7_days,
-        description
+@router.message(
+    lambda message: message.text == "📞 Поддержка"
+)
+async def support_start(
+    message: Message,
+    state: FSMContext
 ):
 
-    connection = connect()
+    print("КНОПКА ПОДДЕРЖКА НАЖАТА")
 
-    cursor = connection.cursor()
+    await message.answer(
+        "🆘 Опишите вашу проблему:"
+    )
 
-
-    cursor.execute(
-        """
-        INSERT INTO games
-        (
-            name,
-            price_1_day,
-            price_3_days,
-            price_7_days,
-            description
-        )
-
-        VALUES (?, ?, ?, ?, ?)
-
-        """,
-
-        (
-            name,
-            price_1_day,
-            price_3_days,
-            price_7_days,
-            description
-        )
+    await state.set_state(
+        Support.message
     )
 
 
-    connection.commit()
 
-    connection.close()
-
-
-
-
-
-
-# =========================
-# Получить все игры
-# =========================
-
-
-def get_games():
-
-    connection = connect()
-
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT
-        id,
-        name,
-        price_1_day,
-        price_3_days,
-        price_7_days,
-        description
-
-        FROM games
-
-        ORDER BY id DESC
-        """
-    )
-
-
-    games = cursor.fetchall()
-
-
-    connection.close()
-
-
-    return games
-
-
-
-
-
-
-# =========================
-# Получить одну игру
-# =========================
-
-
-def get_game(game_id):
-
-    connection = connect()
-
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT
-        id,
-        name,
-        price_1_day,
-        price_3_days,
-        price_7_days,
-        description
-
-        FROM games
-
-        WHERE id=?
-
-        """,
-
-        (
-            game_id,
-        )
-    )
-
-
-    game = cursor.fetchone()
-
-
-    connection.close()
-
-
-    return game
-
-
-
-
-
-
-# =========================
-# Удалить игру
-# =========================
-
-
-def delete_game(game_id):
-
-    connection = connect()
-
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        DELETE FROM games
-
-        WHERE id=?
-
-        """,
-
-        (
-            game_id,
-        )
-    )
-
-
-    connection.commit()
-
-    connection.close()
-
-
-
-
-
-
-# =========================
-# Изменить цену
-# =========================
-
-
-def update_game_price(
-        game_id,
-        price_1_day,
-        price_3_days,
-        price_7_days
+@router.message(
+    StateFilter(Support.message)
+)
+async def support_send(
+    message: Message,
+    state: FSMContext
 ):
 
-    connection = connect()
-
-    cursor = connection.cursor()
-
-
-
-    cursor.execute(
-        """
-        UPDATE games
-
-        SET
-
-        price_1_day=?,
-
-        price_3_days=?,
-
-        price_7_days=?
-
-
-        WHERE id=?
-
-        """,
-
-        (
-            price_1_day,
-            price_3_days,
-            price_7_days,
-            game_id
-        )
+    create_ticket(
+        message.from_user.id,
+        message.from_user.username or "Нет username",
+        message.text
+    )
+    await message.bot.send_message(
+    ADMIN_ID,
+    "📩 Новое обращение!\n\n"
+    f"👤 Пользователь:\n"
+    f"ID: {message.from_user.id}\n"
+    f"Username: @{message.from_user.username or 'Нет username'}\n\n"
+    f"💬 Проблема:\n"
+    f"{message.text}\n\n"
+    "➡️ Для ответа откройте раздел «📩 Обращения» в админ-панели."
+)
+    await message.answer(
+        "✅ Ваше обращение создано!\n\n"
+        "Ожидайте ответа поддержки."
     )
 
-
-
-    connection.commit()
-
-    connection.close()
+    await state.clear()
+    

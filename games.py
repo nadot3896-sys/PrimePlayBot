@@ -1,127 +1,62 @@
-from database.db import connect
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
+def games_keyboard(games):
 
-# Получить всех пользователей
-
-def get_users():
-
-    connection = connect()
-    cursor = connection.cursor()
+    keyboard = []
 
 
-    cursor.execute(
-        """
-        SELECT telegram_id, username
-        FROM users
-        """
+    for game in games:
+
+        game_id = game[0]
+
+        name = game[1]
+
+        price_1_day = game[2]
+        price_3_days = game[3]
+        price_7_days = game[4]
+
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🎮 {name}",
+                    callback_data="ignore"
+                )
+            ]
+        )
+
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📅 1 день — {price_1_day}₽",
+                    callback_data=f"buy_{game_id}_1"
+                )
+            ]
+        )
+
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📅 3 дня — {price_3_days}₽",
+                    callback_data=f"buy_{game_id}_3"
+                )
+            ]
+        )
+
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📅 7 дней — {price_7_days}₽",
+                    callback_data=f"buy_{game_id}_7"
+                )
+            ]
+        )
+
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=keyboard
     )
-
-
-    users = cursor.fetchall()
-
-
-    connection.close()
-
-    return users
-
-
-
-# Количество пользователей
-
-def get_users_count():
-
-    connection = connect()
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM users
-        """
-    )
-
-
-    count = cursor.fetchone()[0]
-
-
-    connection.close()
-
-    return count
-
-
-
-# Количество игр
-
-def get_games_count():
-
-    connection = connect()
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM games
-        """
-    )
-
-
-    count = cursor.fetchone()[0]
-
-
-    connection.close()
-
-    return count
-
-
-
-# Количество аренд
-
-def get_rentals_count():
-
-    connection = connect()
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM rentals
-        """
-    )
-
-
-    count = cursor.fetchone()[0]
-
-
-    connection.close()
-
-    return count
-
-
-
-# Общий баланс пользователей
-
-def get_total_balance():
-
-    connection = connect()
-    cursor = connection.cursor()
-
-
-    cursor.execute(
-        """
-        SELECT SUM(balance)
-        FROM users
-        """
-    )
-
-
-    total = cursor.fetchone()[0]
-
-
-    connection.close()
-
-
-    return total or 0

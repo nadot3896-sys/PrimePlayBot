@@ -1,328 +1,124 @@
 from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
 
-from aiogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery,
-    User
-)
+from keyboards.menu import admin_menu_button
 
 from database.db import (
-    get_balance,
-    get_level_progress,
-    get_user_discount
+    add_user,
+    user_exists,
+    add_referral,
+    has_referrer
 )
-
-from database.rentals import (
-    get_rentals_count,
-    get_user_rentals
-)
-
-from datetime import datetime
 
 
 router = Router()
 
 
+@router.message(Command("start"))
+async def start_command(message: Message):
 
-# =========================
-# Полоса прогресса
-# =========================
+    telegram_id = message.from_user.id
 
-def progress_bar(percent):
+    full_name = message.from_user.full_name
 
-    blocks = 10
-
-    filled = int(
-        blocks * percent / 100
-    )
-
-    return (
-        "🟩" * filled +
-        "⬜" * (blocks - filled)
-    )
+    username = message.from_user.username
 
 
+    # проверяем есть ли пользователь
 
-# =========================
-# Создание кабинета
-# =========================
-
-async def show_profile(
-        message,
-        user: User
-):
-
-    username = (
-        f"@{user.username}"
-        if user.username
-        else "Не указан"
-    )
-
-
-    telegram_id = user.id
-
-    full_name = user.full_name
-
-
-    balance = round(
-        float(get_balance(telegram_id)),
-        2
-    )
-
-
-    level_data = get_level_progress(
+    user = user_exists(
         telegram_id
     )
 
 
-    level = level_data["level"]
-
-    total_spent = level_data["spent"]
-
-    left = level_data["left"]
-
-    percent = level_data["percent"]
+    if user is None:
 
 
-    discount = get_user_discount(
-        telegram_id
-    )
+        # создаём пользователя
+
+        add_user(
+            telegram_id,
+            full_name,
+            username
+        )
 
 
-    bar = progress_bar(
-        percent
-    )
+        text = (
+            "👋 Добро пожаловать в Prime Play!\n\n"
+            "Ты успешно зарегистрирован 🎮"
+        )
 
 
-    rentals_count = get_rentals_count(
-        telegram_id
-    )
+        # проверяем реферальную ссылку
+
+        args = message.text.split()
 
 
-    rentals = get_user_rentals(
-        telegram_id
-    )
-
-
-
-    text = (
-
-        "👤 Твой личный кабинет\n\n"
-
-        f"Имя: {full_name}\n"
-        f"Username: {username}\n"
-        f"ID: {telegram_id}\n\n"
-
-        f"⭐ Уровень: {level}\n"
-        f"🎁 Скидка: {discount}%\n\n"
-
-        f"💳 Всего потрачено: {total_spent:.2f}₽\n\n"
-
-        "📈 Прогресс уровня:\n"
-
-        f"{bar}\n"
-
-        f"Осталось: {left:.2f}₽\n\n"
-
-        f"💰 Баланс: {balance:.2f} ₽\n"
-
-        f"🎮 Аренд: {rentals_count}\n\n"
-
-    )
-
-
-
-    buttons = []
-
-
-
-    if rentals:
-
-
-        text += "🎮 Твои активные аренды:\n\n"
-
-
-
-        for rental in rentals:
-
-
-            rental_id = rental[0]
-
-            game_name = rental[1]
-
-            end_time = rental[4]
-
+        if len(args) > 1:
 
 
             try:
 
-
-                end = datetime.strptime(
-                    end_time,
-                    "%Y-%m-%d %H:%M:%S"
-                )
-
-
-                remaining = (
-                    end - datetime.now()
-                )
-
-
-
-                if remaining.total_seconds() > 0:
-
-
-                    seconds = int(
-                        remaining.total_seconds()
-                    )
-
-
-                    days = seconds // 86400
-
-
-                    hours = (
-                        seconds % 86400
-                    ) // 3600
-
-
-                    minutes = (
-                        seconds % 3600
-                    ) // 60
-
-
-
-                    time_text = (
-                        f"{days}д "
-                        f"{hours}ч "
-                        f"{minutes}м"
-                    )
-
-
-                else:
-
-                    time_text = "Время вышло"
-
+                referrer_id = int(args[1])
 
 
             except:
 
-
-                time_text = "Ошибка времени"
-
+                referrer_id = None
 
 
 
-            text += (
-
-                f"🎮 Игра: {game_name}\n"
-
-                f"💰 Итоговая сумма: {rental[3]}₽\n"
-
-                f"⏳ Осталось: {time_text}\n\n"
-
-            )
+            if referrer_id:
 
 
+                # нельзя пригласить самого себя
 
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"🔄 Продлить {game_name}",
-                        callback_data=f"extend_{rental_id}"
-                    )
-                ]
-            )
+                if referrer_id != telegram_id:
 
 
+                    # проверяем что у пользователя ещё нет пригласителя
 
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"❌ Отменить {game_name}",
-                        callback_data=f"cancel_{rental_id}"
-                    )
-                ]
-            )
+                    if not has_referrer(telegram_id):
+
+
+                        result = add_referral(
+                            telegram_id,
+                            referrer_id
+                        )
+
+
+                        if result:
+
+
+                            try:
+
+                                await message.bot.send_message(
+                                    referrer_id,
+                                    "🎁 Новый друг зарегистрировался!\n\n"
+                                    "💰 Вам начислено 20₽"
+                                )
+
+
+                            except:
+
+                                pass
 
 
 
     else:
 
 
-        text += (
-            "🎮 У тебя пока нет арендованных игр\n"
+        text = (
+            "👋 С возвращением в Prime Play!\n\n"
+            "Выбери нужный раздел:"
         )
 
 
 
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="🔄 Обновить кабинет",
-                callback_data="refresh_profile"
-            )
-        ]
-    )
-
-
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=buttons
-    )
-
-
-
     await message.answer(
-        text,
-        reply_markup=keyboard
+    text,
+    reply_markup=admin_menu_button(
+        message.from_user.id
     )
-
-
-
-
-
-# =========================
-# Кнопка Кабинет
-# =========================
-
-@router.message(
-    lambda message: message.text == "👤 Кабинет"
 )
-
-async def profile_button(message: Message):
-
-
-    await show_profile(
-        message,
-        message.from_user
-    )
-
-
-
-
-
-# =========================
-# Обновление кабинета
-# =========================
-
-@router.callback_query(
-    lambda call: call.data == "refresh_profile"
-)
-
-async def refresh_profile(call: CallbackQuery):
-
-
-    await call.message.delete()
-
-
-
-    await show_profile(
-        call.message,
-        call.from_user
-    )
-
-
-
-    await call.answer()
