@@ -1,0 +1,176 @@
+from database.db import connect
+from datetime import datetime
+
+
+
+# =========================
+# Создать обращение
+# =========================
+
+def create_ticket(
+        user_id,
+        message
+):
+
+    connection = connect()
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        INSERT INTO tickets
+        (
+            user_id,
+            message,
+            status,
+            created_at
+        )
+
+        VALUES (?, ?, ?, ?)
+
+        """,
+        (
+            user_id,
+            message,
+            "open",
+            datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        )
+    )
+
+
+    connection.commit()
+    connection.close()
+
+
+
+
+
+# =========================
+# Получить открытые тикеты
+# =========================
+
+def get_open_tickets():
+
+    connection = connect()
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM tickets
+        WHERE status = 'open'
+        ORDER BY id DESC
+        """
+    )
+
+
+    tickets = cursor.fetchall()
+
+
+    connection.close()
+
+
+    return tickets
+
+
+
+
+
+# =========================
+# Получить тикет
+# =========================
+
+def get_ticket(ticket_id):
+
+    connection = connect()
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM tickets
+        WHERE id = ?
+        """,
+        (
+            ticket_id,
+        )
+    )
+
+
+    ticket = cursor.fetchone()
+
+
+    connection.close()
+
+
+    return ticket
+
+
+
+
+
+# =========================
+# Закрыть тикет
+# =========================
+
+def close_ticket(ticket_id):
+
+    connection = connect()
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        UPDATE tickets
+
+        SET status = 'closed'
+
+        WHERE id = ?
+
+        """,
+        (
+            ticket_id,
+        )
+    )
+
+
+    connection.commit()
+    connection.close()
+
+
+
+
+
+# =========================
+# История обращений
+# =========================
+
+def get_ticket_history():
+
+    connection = connect()
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        SELECT *
+
+        FROM tickets
+
+        ORDER BY id DESC
+
+        """
+    )
+
+
+    tickets = cursor.fetchall()
+
+
+    connection.close()
+
+
+    return tickets
